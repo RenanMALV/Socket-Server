@@ -10,7 +10,7 @@ serverSocket = socket(AF_INET, SOCK_STREAM)
 serverAddr = 'localhost'
 serverPort = 80
 serverSocket.bind((serverAddr, serverPort))
-serverSocket.listen(1)
+serverSocket.listen(5)
 serverSocket.settimeout(5.0)
 print('Servidor inicializado em ', serverSocket.getsockname())
 
