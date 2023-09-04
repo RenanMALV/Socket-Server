@@ -3,7 +3,8 @@ from socket import *
 import sys # In order to terminate the program
 import os # get file details
 import time # to send time in response header lines
-import signal # for manually closing the socket 
+import signal # for manually closing the socket
+from urllib.parse import unquote # for decoding url coded to UTF-8
 
 #Prepare a sever socket
 serverSocket = socket(AF_INET, SOCK_STREAM)
@@ -39,45 +40,64 @@ while True:
             connectionSocket.close()
             continue
 
-        #print(messageBytes.decode())
+        print("INPUT DEBUG:\n---------------------\n",
+              messageBytes.decode(),
+              "\n---------------------\n")
         message = messageBytes.decode()
+
+        method = message.split()[0]
+        print("Método:", method)
+
         filename = message.split()[1]
         print("Requisitou:", filename)
         
-        # if in initial page, redirect to index.html
-        if(filename == "/"):
-            print("Redirecionando para o index")
-            filename = "/index.html"
-        
-        f = open(filename[1:])
-        outputdata = f.read()
-        f.close()
+        if(method == "GET"): # GET method handling
+            # if in initial page, redirect to index.html
+            if(filename == "/"):
+                print("Redirecionando para o index")
+                filename = "/index.html"
+            
+            f = open(filename[1:])
+            outputdata = f.read()
+            f.close()
 
-        #Send one HTTP header line into socket
-        header = "HTTP/1.1 200 OK\r\n"
-        # time
-        headerLines ="Date: " + time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()) + "\r\n"
-        # server
-        headerLines += "Server: Python_Socket\r\n" 
-        # content length
-        headerLines += "Content-Length: " + str(os.path.getsize(filename[1:])) + "\r\n"
-        # content type
-        fileType = filename.split('.')[-1]
-        if(fileType == "html"):
-            headerLines += "Content-Type: text/html\r\n"
-        else:
-            headerLines += "Content-Type: " + fileType + "\r\n"
-        # connection close (connection will be closed after the response)
-        headerLines += 'Connection: close\r\n\n'
-        responseHeader = header + headerLines
-        print(responseHeader)
+            #Send one HTTP header line into socket
+            header = "HTTP/1.1 200 OK\r\n"
+            # time
+            headerLines ="Date: " + time.strftime("%a, %d %b %Y %H:%M:%S", time.localtime()) + "\r\n"
+            # server
+            headerLines += "Server: Python_Socket\r\n" 
+            # content length
+            headerLines += "Content-Length: " + str(os.path.getsize(filename[1:])) + "\r\n"
+            # content type
+            fileType = filename.split('.')[-1]
+            if(fileType == "html"):
+                headerLines += "Content-Type: text/html\r\n"
+            else:
+                headerLines += "Content-Type: " + fileType + "\r\n"
+            # connection close (connection will be closed after the response)
+            headerLines += "Connection: close\r\n\r\n"
+            responseHeader = header + headerLines
+            print("Resposta enviada:", responseHeader)
 
-        outputdata = responseHeader + outputdata
-        #Send the content of the requested file to the client
-        for i in range(0, len(outputdata)):
-            connectionSocket.send(outputdata[i].encode())
-        connectionSocket.send("\r\n".encode())
-        connectionSocket.close()
+            outputdata = responseHeader + outputdata
+            #Send the content of the requested file to the client
+            for i in range(0, len(outputdata)):
+                connectionSocket.send(outputdata[i].encode())
+            connectionSocket.send("\r\n".encode())
+            connectionSocket.close()
+        elif(method == "POST"): # POST method handling
+            # format the request body to a list of fields sended
+            requestBody = unquote(message.split("\r\n\r\n")[1]).split('&')
+            fieldDict = dict()
+            # get the key and value of each field
+            for key, value in [field.split('=') for field in requestBody]:
+                #print(key, " = ", value)
+                fieldDict[key] = value
+
+                
+        else: # raises execption for unknown method
+            raise IOError("Unknown Method")
     except IOError as e:
         print("Capturada uma exceção:\n     ", e)
         # error 404 Not Found
@@ -92,7 +112,7 @@ while True:
                 # content type
                 headerLines += "Content-Type: text/html\r\n"
                 # connection close (connection will be closed after the response)
-                headerLines += 'Connection: close\r\n\n'
+                headerLines += "Connection: close\r\n\r\n"
                 
                 responseHeader = header + headerLines
                 print(responseHeader)
