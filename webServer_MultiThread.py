@@ -16,7 +16,7 @@ print("IP de DNS WAN:", DNS_IP_WAN)
 
 #Prepare a sever socket
 serverSocket = socket(AF_INET, SOCK_STREAM)
-serverAddr = "192.168.0.4"
+serverAddr = DNS_IP_LAN[2][0]
 serverPort = 80
 serverSocket.bind((serverAddr, serverPort))
 serverSocket.listen(5)
