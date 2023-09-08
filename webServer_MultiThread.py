@@ -5,6 +5,14 @@ import os # get file details
 import time # to send time in response header lines
 import signal # for manually closing the socket
 from urllib.parse import unquote # for decoding url coded to UTF-8
+import threading # creates client session threads 
+import csv
+
+print("\nDNS:", )
+DNS_IP_LAN = gethostbyname_ex("")
+DNS_IP_WAN = gethostbyname_ex("renanmalv.ddns.net")
+print("IP de DNS LAN:", DNS_IP_LAN)
+print("IP de DNS WAN:", DNS_IP_WAN)
 
 #Prepare a sever socket
 serverSocket = socket(AF_INET, SOCK_STREAM)
@@ -13,9 +21,14 @@ serverPort = 80
 serverSocket.bind((serverAddr, serverPort))
 serverSocket.listen(5)
 serverSocket.settimeout(5.0)
-user = ""
-sessionAddr = {}
-print('Servidor inicializado em ', serverSocket.getsockname())
+sessions = {}
+print("\nServidor inicializado em", serverSocket.getsockname())
+
+def getUser(addr):
+    for user, loggedAddr in sessions.items():
+        if addr[0] == loggedAddr[0]:
+            return user
+    return None
 
 def closeServer(sigNumber, _):
     print("Encerrando servidor...", "Sinal:", signal.Signals(sigNumber).name)
@@ -24,22 +37,26 @@ def closeServer(sigNumber, _):
 
 # authenticate credentials
 def authLogIn(user, pswd):
-    if(user == "renan@mail.com" and pswd == "pass"):
-        return True
-    else:
-        return False
+    with open("users.csv", "r") as users:
+        reader = csv.DictReader(users)
+        for userInfo in reader:
+            if(user == userInfo["user"] and pswd == userInfo["pass"]):
+                return True
+    return False
     
 # authenticate connection
-def authConn(clientAddr):
+def authConn(user, clientAddr):
     #print(clientAddr, "\n", sessionAddr)
-    if sessionAddr:
-        if(clientAddr[0] == sessionAddr[0] and user != ""):
-            return True
-    
+    userAddr = sessions.get(user)
+    print("Tentando autenticar", user, userAddr)
+    if userAddr is not None:
+        if userAddr[0] == clientAddr[0]:
+            return True 
+    print("não autenticado!")
     return False
 
     
-def sendPage(filename, connectionSocket, clientAddr):
+def sendPage(filename, connectionSocket, user, clientAddr):
     # if in initial page, redirect to index.html
     outputdata = ""
     if(filename == "/"):
@@ -47,13 +64,26 @@ def sendPage(filename, connectionSocket, clientAddr):
         filename = "/index.html"
     
     if(filename == "/user"):
-        if authConn(clientAddr):
+        if authConn(user, clientAddr):
             content = (
+                "<br>" +
                 "Conectado como " + user + 
                 "<br>" + 
+                "<br>" + 
                 "<form action=\"logout\" method=\"post\" name=\"Logout\">" + 
-                "<input name=\"submit\" type=\"submit\" value=\"Log out\" style=\"height:50px;width:200px\"/>" +
-                "</form>"
+                "<input name=\"submit\" type=\"submit\" value=\"logout\" style=\"height:50px;width:200px\"/>" +
+                "</form>" +
+                "<br>" +
+                "<hr>" +
+                "<br>" + 
+                "DNS (LAN): " + ''.join(DNS_IP_LAN[0]) +
+                "<br>" + 
+                "IP: " + ''.join(DNS_IP_LAN[2]) +
+                "<br>" +
+                "<br>" +
+                "DNS (WAN): " + ''.join(DNS_IP_WAN[0]) +
+                "<br>" + 
+                "IP: " + ''.join(DNS_IP_WAN[2])
             )    
         else:
             content = "Não conectado!"
@@ -154,27 +184,19 @@ def send404(connectionSocket):
 # prepare for handling SIGINT
 signal.signal(signal.SIGINT, closeServer)
 
-while True:
-    try:
-        #Establish the connection
-        #print("blocking")
-        connectionSocket, clientAddr = serverSocket.accept()
-        print ("Nova conexão com o cliente:", clientAddr)
-    except timeout as timeOut_e:
-        #print(timeOut_e)
-        continue
-
+def sessionThread(connectionSocket, clientAddr):
+    user = getUser(clientAddr)
     try:
         # receive a request
         messageBytes, msgAddr = connectionSocket.recvfrom(2048)
 
         if not messageBytes:
             connectionSocket.close()
-            continue
+            return
 
-        print("INPUT DEBUG:\n---------------------\n",
-              messageBytes.decode(),
-              "\n---------------------\n")
+        #print("INPUT DEBUG:\n---------------------\n",
+        #      messageBytes.decode(),
+        #      "\n---------------------\n")
         message = messageBytes.decode()
 
         method = message.split()[0]
@@ -184,7 +206,7 @@ while True:
         print("Requisitou:", filename)
         
         if(method == "GET"): # GET method handling
-            sendPage(filename, connectionSocket, clientAddr)
+            sendPage(filename, connectionSocket, user, clientAddr)
         
         elif(method == "POST"): # POST method handling
             # format the request body to a list of fields sended
@@ -195,23 +217,33 @@ while True:
                 #print(key, " = ", value)
                 fieldDict[key] = value
             
-            if(fieldDict["submit"] == "Log+in"):
+            action = fieldDict.pop("submit")
+            if(action == "login"):
+                # log out if there is a user already connected
+                if(user):
+                    sessions.pop(user)
                 auth = authLogIn(fieldDict["user"], fieldDict["pass"])
                 if auth:
                     user = fieldDict["user"]
-                    sessionAddr = clientAddr
+                    sessions[user] = clientAddr
                     print("\nSessão", user, "iniciada com sucesso!\n")
                     sendRedirect("/user", connectionSocket)
                 else:
                     sendRedirect("/404", connectionSocket)
-            elif(fieldDict["submit"] == "Log+out"):
-                if authConn(clientAddr):
+            elif(action == "logout"):
+                if authConn(user ,clientAddr):
                     print("Logging", user, "out...")
-                    user = ""
-                    sessionAddr = ""
+                    sessions.pop(user)
                     sendRedirect("/", connectionSocket)
                 else:
                     sendRedirect("/404", connectionSocket)
+            elif(action == "register"):
+                # Open the CSV file to register a user
+                with open("users.csv", "a", newline='') as db:
+                    writer = csv.DictWriter(db, fieldnames=fieldDict.keys())
+                    writer.writerow(fieldDict)
+                print("\nUsuário", fieldDict["user"], "registrado com sucesso!\n")
+                sendRedirect("/", connectionSocket)
             else:
                 raise IOError("Unknown POST Submission")
                 
@@ -229,8 +261,21 @@ while True:
                 print("Capturado um erro de conexão:", conn_e)
         #Close client socket
         connectionSocket.close()
-        continue
+        return
 
+while True:
+    try:
+        # Establish the connection
+        #print("blocking")
+        connectionSocket, clientAddr = serverSocket.accept() # create exception on timeout
+        print ("Nova conexão com o cliente:", clientAddr)
+        # create a new client session thread
+        print("\n Usuários logados:", sessions, "\n")
+        threading.Thread(target=sessionThread, args=(connectionSocket, clientAddr)).start()
+    except timeout as timeOut_e:
+        #print(timeOut_e)
+        continue
+    
 #closeServer()
 # should not reach this section of code...
 # all exceptions should be treated and connections closed

@@ -43,7 +43,7 @@ def sendPage(filename, connectionSocket, clientAddr):
     # if in initial page, redirect to index.html
     outputdata = ""
     if(filename == "/"):
-        print("Redirecionando para o index")
+        #print("Redirecionando para o index")
         filename = "/index.html"
     
     if(filename == "/user"):
@@ -159,7 +159,7 @@ while True:
         #Establish the connection
         #print("blocking")
         connectionSocket, clientAddr = serverSocket.accept()
-        print ("Nova conexão com o cliente:", clientAddr)
+        print ("Nova conexão com o cliente:", clientAddr, "\n")
     except timeout as timeOut_e:
         #print(timeOut_e)
         continue
@@ -172,9 +172,9 @@ while True:
             connectionSocket.close()
             continue
 
-        print("INPUT DEBUG:\n---------------------\n",
-              messageBytes.decode(),
-              "\n---------------------\n")
+        #print("INPUT DEBUG:\n---------------------\n",
+        #      messageBytes.decode(),
+        #     "\n---------------------\n")
         message = messageBytes.decode()
 
         method = message.split()[0]
